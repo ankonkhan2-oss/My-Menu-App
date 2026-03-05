@@ -1,63 +1,58 @@
 import streamlit as st
 import google.generativeai as genai
 import json
+import pandas as pd  # স্প্রেডশিট ফরম্যাটের জন্য
 from PIL import Image
+from io import BytesIO
 
-# ওয়েবসাইটের ডিজাইন ও টাইটেল
 st.set_page_config(page_title="Menu OCR Tool", layout="wide")
 st.title("🍽️ Smart Restaurant Menu Extractor")
-st.write("আপনার মেনুর ছবি আপলোড করুন এবং ১১টি শর্ত অনুযায়ী সাজানো ডেটা পেয়ে যান!")
+st.write("আপনার মেনুর ছবি আপলোড করুন এবং শর্ত অনুযায়ী সাজানো ডেটা সরাসরি স্প্রেডশিটে নিয়ে যান!")
 
-# ইউজারের কাছ থেকে API Key নেওয়ার বক্স (যাতে আপনার কোড নিরাপদ থাকে)
-api_key = st.text_input("আপনার Gemini API Key দিন (Security-র জন্য):", type="password")
+api_key = st.text_input("আপনার Gemini API Key দিন:", type="password")
+uploaded_file = st.file_uploader("মেনুর ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
 
-# ছবি আপলোড করার অপশন
-uploaded_file = st.file_uploader("মেনুর ছবি আপলোড করুন (JPG, JPEG, PNG)", type=["jpg", "jpeg", "png"])
-
-if st.button("Extract Menu Data"):
-    if not api_key:
-        st.error("দয়া করে প্রথমে আপনার API Key দিন!")
-    elif not uploaded_file:
-        st.error("দয়া করে একটি ছবি আপলোড করুন!")
+if st.button("Extract & Export Data"):
+    if not api_key or not uploaded_file:
+        st.error("API Key এবং ছবি দুটোই প্রয়োজন!")
     else:
         try:
-            # মডেল রেডি করা
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-2.5-flash')
-            
-            # ছবি পড়া
             image = Image.open(uploaded_file)
             
-            with st.spinner("এআই আপনার মেনু স্ক্যান করছে এবং শর্তগুলো মেলাচ্ছে... দয়া করে অপেক্ষা করুন।"):
-                # ১১টি কন্ডিশন সহ প্রম্পট
+            with st.spinner("ডেটা প্রসেস হচ্ছে..."):
                 prompt = """
-                You are an expert menu data extractor. Extract data strictly into a flat JSON array.
+                Extract menu data strictly into a JSON array of objects.
+                COLUMNS: "Item Type", "Category", "Item", "Price (Cents)".
                 RULES:
-                1. 4-column table data: "Item Type", "Category", "Item", "Price (Cents)".
-                2. Categories: "Main Dish" first (like Chef's Specialties, Combination Plates), then "Appetizers", "Salads", "Soups", then the rest.
-                3 & 10. Options/Sizes: If an item has sizes (e.g., Pt., Qt., Sm., Lg.), create separate items combining the name and size, e.g., "13. Wonton Soup (Pt.)".
-                4. Split 'or' / '/': e.g., "Chicken or Shrimp Noodles" -> two separate items.
-                5. Convert ALL prices to cents (e.g., $10.25 -> 1025).
-                6 & 7. Serials: Keep if they exist (with dot), do not add if missing.
-                8. Item Type: "Item" for regular items, "Option" for variations/sizes.
-                9. 100% spelling and price accuracy.
-                
-                Return ONLY a JSON array of objects. Example:
-                [
-                  {"Item Type": "Item", "Category": "Appetizers", "Item": "1. Egg Roll", "Price": 200},
-                  {"Item Type": "Option", "Category": "Soup", "Item": "13. Wonton Soup (Pt.)", "Price": 375}
-                ]
+                1. Main Dish first, then Appetizers, Soups, etc.
+                2. Combine Item Name + Size for options (e.g. "Wonton Soup (Pt.)").
+                3. Split 'or' items into two rows.
+                4. Convert prices to cents.
+                Return ONLY JSON.
                 """
                 response = model.generate_content([image, prompt])
-                
-                # JSON ডাটা ক্লিন করা
                 json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
                 menu_data = json.loads(json_text)
                 
-                st.success("সফলভাবে ডাটা বের করা হয়েছে!")
+                # ডেটাকে Pandas DataFrame-এ রূপান্তর (যাতে কপি/ডাউনলোড সহজ হয়)
+                df = pd.DataFrame(menu_data)
                 
-                # সুন্দর টেবিল আকারে দেখানো
-                st.table(menu_data)
+                st.success("সফলভাবে ডেটা এক্সট্র্যাক্ট করা হয়েছে!")
                 
+                # ১. স্ক্রিনে টেবিল দেখানো
+                st.dataframe(df, use_container_width=True)
+                
+                # ২. Google Spreadsheet-এ নেওয়ার জন্য CSV ডাউনলোড বাটন
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download for Google Sheets (CSV)",
+                    data=csv,
+                    file_name='menu_data.csv',
+                    mime='text/csv',
+                )
+                st.info("উপরের বাটন থেকে ফাইলটি ডাউনলোড করে সরাসরি Google Sheets-এ 'Import' করতে পারবেন।")
+
         except Exception as e:
-            st.error(f"কোথাও একটি সমস্যা হয়েছে: {e}")
+            st.error(f"Error: {e}")
