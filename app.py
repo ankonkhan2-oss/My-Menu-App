@@ -1,58 +1,63 @@
 import streamlit as st
 import google.generativeai as genai
 import json
-import pandas as pd  # স্প্রেডশিট ফরম্যাটের জন্য
+import pandas as pd
 from PIL import Image
-from io import BytesIO
 
 st.set_page_config(page_title="Menu OCR Tool", layout="wide")
 st.title("🍽️ Smart Restaurant Menu Extractor")
-st.write("আপনার মেনুর ছবি আপলোড করুন এবং শর্ত অনুযায়ী সাজানো ডেটা সরাসরি স্প্রেডশিটে নিয়ে যান!")
+st.write("Apnar menu-r chhobi upload korun ebong nikhut bhabe sajano data spreadsheet-e niye jan!")
 
-api_key = st.text_input("আপনার Gemini API Key দিন:", type="password")
-uploaded_file = st.file_uploader("মেনুর ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
+api_key = st.text_input("Apnar Gemini API Key din:", type="password")
+uploaded_file = st.file_uploader("Menu-r chhobi upload korun", type=["jpg", "jpeg", "png"])
 
 if st.button("Extract & Export Data"):
     if not api_key or not uploaded_file:
-        st.error("API Key এবং ছবি দুটোই প্রয়োজন!")
+        st.error("API Key ebong chhobi duto-i din!")
     else:
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-2.5-flash')
             image = Image.open(uploaded_file)
             
-            with st.spinner("ডেটা প্রসেস হচ্ছে..."):
+            with st.spinner("Serial number o column thik kora hochche..."):
                 prompt = """
-                Extract menu data strictly into a JSON array of objects.
-                COLUMNS: "Item Type", "Category", "Item", "Price (Cents)".
-                RULES:
-                1. Main Dish first, then Appetizers, Soups, etc.
-                2. Combine Item Name + Size for options (e.g. "Wonton Soup (Pt.)").
-                3. Split 'or' items into two rows.
-                4. Convert prices to cents.
-                Return ONLY JSON.
+                Extract menu data into a JSON array. 
+                Each object MUST have exactly these 4 keys: "Item Type", "Category", "Item", "Price (Cents)".
+
+                STRICT FORMATTING RULES:
+                1. "Item Type": Only "Item" (for main food) or "Option" (for size/variation).
+                2. "Category": The menu section name.
+                3. "Item": IMPORTANT! If a serial number (like 1, 2, 89) exists before the food name in the image, you MUST include it (e.g., "1. Egg Roll", "89. General Tso's Chicken"). If it's an option, add size: "13. Wonton Soup (Pt.)".
+                4. "Price (Cents)": Convert to cents.
+
+                EXTRA RULES:
+                - Maintain order: Main Dish first, then Appetizers, then others.
+                - Never swap Category with Item Type.
+                - Keep serial numbers exactly as they appear on the menu.
+
+                Return ONLY a JSON array.
                 """
                 response = model.generate_content([image, prompt])
                 json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
                 menu_data = json.loads(json_text)
                 
-                # ডেটাকে Pandas DataFrame-এ রূপান্তর (যাতে কপি/ডাউনলোড সহজ হয়)
                 df = pd.DataFrame(menu_data)
                 
-                st.success("সফলভাবে ডেটা এক্সট্র্যাক্ট করা হয়েছে!")
-                
-                # ১. স্ক্রিনে টেবিল দেখানো
+                # Column sequence fix
+                cols = ["Item Type", "Category", "Item", "Price (Cents)"]
+                df = df[cols] 
+
+                st.success("Successfully data extract kora hoyeche!")
                 st.dataframe(df, use_container_width=True)
                 
-                # ২. Google Spreadsheet-এ নেওয়ার জন্য CSV ডাউনলোড বাটন
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="Download for Google Sheets (CSV)",
                     data=csv,
-                    file_name='menu_data.csv',
+                    file_name='menu_fixed_final.csv',
                     mime='text/csv',
                 )
-                st.info("উপরের বাটন থেকে ফাইলটি ডাউনলোড করে সরাসরি Google Sheets-এ 'Import' করতে পারবেন।")
 
         except Exception as e:
             st.error(f"Error: {e}")
