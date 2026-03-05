@@ -6,36 +6,35 @@ from PIL import Image
 
 st.set_page_config(page_title="Menu OCR Tool", layout="wide")
 st.title("🍽️ Smart Restaurant Menu Extractor")
-st.write("Apnar menu-r chhobi upload korun ebong nikhut bhabe sajano data spreadsheet-e niye jan!")
+st.write("নিখুঁতভাবে সিরিয়াল নম্বরসহ মেনু ডেটা স্প্রেডশিটে নিয়ে যান!")
 
-api_key = st.text_input("Apnar Gemini API Key din:", type="password")
-uploaded_file = st.file_uploader("Menu-r chhobi upload korun", type=["jpg", "jpeg", "png"])
+api_key = st.text_input("আপনার Gemini API Key দিন:", type="password")
+uploaded_file = st.file_uploader("মেনুর ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
 
 if st.button("Extract & Export Data"):
     if not api_key or not uploaded_file:
-        st.error("API Key ebong chhobi duto-i din!")
+        st.error("API Key এবং ছবি দুটোই দিন!")
     else:
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-2.5-flash')
             image = Image.open(uploaded_file)
             
-            with st.spinner("Serial number o column thik kora hochche..."):
+            with st.spinner("ডেটা স্প্লিট করা হচ্ছে এবং সিরিয়াল নম্বর যাচাই করা হচ্ছে..."):
                 prompt = """
                 Extract menu data into a JSON array. 
-                Each object MUST have exactly these 4 keys: "Item Type", "Category", "Item", "Price (Cents)".
+                Each object MUST have: "Item Type", "Category", "Item", "Price (Cents)".
 
-                STRICT FORMATTING RULES:
-                1. "Item Type": Only "Item" (for main food) or "Option" (for size/variation).
-                2. "Category": The menu section name.
-                3. "Item": IMPORTANT! If a serial number (like 1, 2, 89) exists before the food name in the image, you MUST include it (e.g., "1. Egg Roll", "89. General Tso's Chicken"). If it's an option, add size: "13. Wonton Soup (Pt.)".
-                4. "Price (Cents)": Convert to cents.
+                STRICT SPLITTING & SERIAL RULES:
+                1. Split 'or' / '/': If an item is "1. Egg Roll or Vegetable Roll", you MUST create TWO separate rows:
+                   - Row 1: Item: "1. Egg Roll", Price: 200
+                   - Row 2: Item: "1. Vegetable Roll", Price: 200
+                2. Serial Numbers: If the menu shows "5. Chicken Chow Mein", the "Item" column MUST be "5. Chicken Chow Mein". Never skip the number.
+                3. Item Type: Use "Item" for main foods and "Option" for sizes (Pt., Qt., etc.).
+                4. Category: Use the section name (e.g., Appetizers, Soup). Do NOT put this in "Item Type".
+                5. Options: For sizes, merge name: "13. Wonton Soup (Pt.)".
 
-                EXTRA RULES:
-                - Maintain order: Main Dish first, then Appetizers, then others.
-                - Never swap Category with Item Type.
-                - Keep serial numbers exactly as they appear on the menu.
-
+                Order: Main Dish, Appetizers, Soups, then others.
                 Return ONLY a JSON array.
                 """
                 response = model.generate_content([image, prompt])
@@ -44,18 +43,18 @@ if st.button("Extract & Export Data"):
                 
                 df = pd.DataFrame(menu_data)
                 
-                # Column sequence fix
+                # Column order fix
                 cols = ["Item Type", "Category", "Item", "Price (Cents)"]
                 df = df[cols] 
 
-                st.success("Successfully data extract kora hoyeche!")
+                st.success("সফলভাবে ডেটা এক্সট্র্যাক্ট এবং স্প্লিট করা হয়েছে!")
                 st.dataframe(df, use_container_width=True)
                 
                 csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="Download for Google Sheets (CSV)",
                     data=csv,
-                    file_name='menu_fixed_final.csv',
+                    file_name='menu_split_fixed.csv',
                     mime='text/csv',
                 )
 
